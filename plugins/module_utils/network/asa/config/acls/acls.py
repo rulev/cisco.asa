@@ -90,14 +90,12 @@ class Acls(ResourceModule):
                             ) == each.get(
                                 "destination",
                             ):
-                                if (
-                                    "protocol" in e_have
-                                    and "protocol" not in each
-                                    and each.get("protocol_options")
-                                    == e_have.get("protocol_options")
-                                ):
-                                    del e_have["protocol"]
-                                    break
+                                if each.get("protocol") == e_have.get("protocol"):
+                                    if not each.get(
+                                        "protocol_options",
+                                    ) and e_have.get("protocol_options"):
+                                        del e_have["protocol_options"]
+                                        break
         # if state is merged, merge want onto have and then compare
         if self.state == "merged":
             # to append line number from have to want
@@ -113,9 +111,12 @@ class Acls(ResourceModule):
                             continue
                         else:
                             for each_have in h_item["aces"]:
-                                have_line = each_have.pop("line")
-                                if each == each_have:
-                                    each.update({"line": have_line})
+                                if each_have.get("line"):
+                                    have_line = each_have.pop("line")
+                                    if each == each_have:
+                                        each.update({"line": have_line})
+                                        break
+                                    each_have.update({"line": have_line})
             wantd = dict_merge(haved, wantd)
 
         # if state is deleted, empty out wantd and set haved to wantd
@@ -158,8 +159,10 @@ class Acls(ResourceModule):
         parsers = ["aces"]
 
         if want.get("aces"):
-            for each in want["aces"]:
+            for idx, each in enumerate(want["aces"]):
                 set_want = True
+                if not each.get("line"):
+                    each.update({"line": idx + 1})
                 if have.get("aces"):
                     temp = 0
                     for e_have in have.get("aces"):

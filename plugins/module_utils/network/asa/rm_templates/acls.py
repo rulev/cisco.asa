@@ -76,9 +76,13 @@ def _tmplt_access_list_entries(config_data):
 
         cmd = ""
         if config_data["aces"].get("remark"):
-            command.append(
-                "access-list {name} line {line} remark {remark}".format(**config_data["aces"]),
-            )
+            cmd = ""
+            try:
+                cmd = "access-list {name} line {line} remark {remark}".format(**config_data["aces"])
+            except KeyError:
+                cmd = "access-list {name} remark {remark}".format(**config_data["aces"])
+            command.append(cmd)
+
         if len(config_data["aces"]) > 4:
             try:
                 cmd = "access-list {name} line {line}".format(**config_data["aces"])
