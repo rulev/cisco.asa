@@ -16,6 +16,7 @@ from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
 import copy
+from difflib import Differ
 
 from ansible.module_utils.six import iteritems
 from ansible_collections.ansible.netcommon.plugins.module_utils.network.common.rm_base.resource_module import (
@@ -96,10 +97,17 @@ class Acls(ResourceModule):
                                     ) and e_have.get("protocol_options"):
                                         del e_have["protocol_options"]
                                         break
+                                elif each.get("protocol_options") == e_have.get("protocol_options"):
+                                    if not each.get(
+                                        "protocol",
+                                    ) and e_have.get("protocol"):
+                                        del e_have["protocol"]
+                                        break
+
         # if state is merged, merge want onto have and then compare
         if self.state == "merged":
             # to append line number from have to want
-            # if want ace config mateches have ace config
+            # if want ace config matches have ace config
             temp_have = copy.deepcopy(haved)
             for k, v in iteritems(wantd):
                 h_item = temp_have.pop(k, {})
@@ -156,85 +164,58 @@ class Acls(ResourceModule):
         the `want` and `have` data with the `parsers` defined
         for the Ospf_interfaces network resource.
         """
-        parsers = ["aces"]
 
+        # the idea is to render want and have access lists
+        # and compare text representations using difflib
+        want_cmds = []
         if want.get("aces"):
-            for idx, each in enumerate(want["aces"]):
-                set_want = True
-                if not each.get("line"):
-                    each.update({"line": idx + 1})
-                if have.get("aces"):
-                    temp = 0
-                    for e_have in have.get("aces"):
-                        if e_have.get("source") == each.get("source") and e_have.get(
-                            "destination",
-                        ) == each.get(
-                            "destination",
-                        ):
-                            set_want = False
-                            if each.get("protocol") == e_have.get("protocol"):
-                                if not each.get(
-                                    "protocol_options",
-                                ) and e_have.get("protocol_options"):
-                                    del e_have["protocol_options"]
-                            if each == e_have:
-                                del have.get("aces")[temp]
-                                break
-                            each.update(
-                                {
-                                    "name": want.get("name"),
-                                    "acl_type": want.get("acl_type"),
-                                },
-                            )
-                            e_have.update(
-                                {
-                                    "name": have.get("name"),
-                                    "acl_type": have.get("acl_type"),
-                                },
-                            )
-                            self.compare(
-                                parsers=parsers,
-                                want={"aces": each},
-                                have={"aces": e_have},
-                            )
-                            break
-                        temp += 1
+            for ace in want.get("aces"):
+                if self.state in ["overridden", "deleted", "replaced"] and ace.get("line"):
+                    del ace["line"]
+                ace.update(
+                    {
+                        "name": want.get("name"),
+                        "acl_type": want.get("acl_type"),
+                    },
+                )
+                want_cmds.extend(self._tmplt.render({"aces": ace}, "aces", False))
+
+        have_cmds = []
+        if have.get("aces"):
+            for ace in have.get("aces"):
+                if self.state in ["overridden", "deleted", "replaced"] and ace.get("line"):
+                    del ace["line"]
+                ace.update(
+                    {
+                        "name": have.get("name"),
+                        "acl_type": have.get("acl_type"),
+                    },
+                )
+                have_cmds.extend(self._tmplt.render({"aces": ace}, "aces", False))
+
+        d = Differ()
+        diff = list(d.compare(have_cmds, want_cmds))
+
+        line_no = 1
+        for cmd in diff:
+            tokens = cmd.split(" ")
+            if tokens[0] == "-":
+                if "line" in cmd:
+                    self.commands.append("no {}".format(" ".join(tokens[1:])))
                 else:
-                    each.update(
-                        {
-                            "name": want.get("name"),
-                            "acl_type": want.get("acl_type"),
-                        },
-                    )
-                    self.compare(
-                        parsers=parsers,
-                        want={"aces": each},
-                        have=dict(),
-                    )
-                    set_want = False
-                if set_want:
-                    each.update(
-                        {
-                            "name": want.get("name"),
-                            "acl_type": want.get("acl_type"),
-                        },
-                    )
-                    self.compare(
-                        parsers=parsers,
-                        want={"aces": each},
-                        have=dict(),
-                    )
-        if self.state in ["overridden", "deleted", "replaced"]:
-            if have.get("aces"):
-                for each in have["aces"]:
-                    each.update(
-                        {
-                            "name": have.get("name"),
-                            "acl_type": have.get("acl_type"),
-                        },
-                    )
-                    self.compare(
-                        parsers=parsers,
-                        want=dict(),
-                        have={"aces": each},
-                    )
+                    self.commands.append("no {} {} line {} {}".format(*tokens[1:3], line_no, " ".join(tokens[3:])))
+                line_no += 1
+            elif tokens[0] == '':
+                line_no += 1
+
+        line_no = 1
+        for cmd in diff:
+            tokens = cmd.split(" ")
+            if tokens[0] == "+":
+                if "line" in cmd:
+                    self.commands.append(" ".join(tokens[1:]))
+                else:
+                    self.commands.append("{} {} line {} {}".format(*tokens[1:3], line_no, " ".join(tokens[3:])))
+                line_no += 1
+            elif tokens[0] == '':
+                line_no += 1
