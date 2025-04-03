@@ -201,7 +201,7 @@ class Acls(ResourceModule):
         for cmd in diff:
             tokens = cmd.split(" ")
             if tokens[0] == "-":
-                if "line" in cmd:
+                if tokens[3] == "line":
                     self.commands.append("no {}".format(" ".join(tokens[1:])))
                 else:
                     self.commands.append("no {} {} line {} {}".format(*tokens[1:3], line_no, " ".join(tokens[3:])))
@@ -213,7 +213,7 @@ class Acls(ResourceModule):
         for cmd in diff:
             tokens = cmd.split(" ")
             if tokens[0] == "+":
-                if "line" in cmd:
+                if tokens[3] == "line":
                     self.commands.append(" ".join(tokens[1:]))
                 else:
                     self.commands.append("{} {} line {} {}".format(*tokens[1:3], line_no, " ".join(tokens[3:])))
